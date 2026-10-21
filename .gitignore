@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller / Distribution
+build/
+dist/
+*.spec
+
+# Local runtime generated files
+pairing_qr.png
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/

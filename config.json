@@ -1,0 +1,10 @@
+{
+  "port": 8799,
+  "token": "48784fe5",
+  "suffix": "enter",
+  "mode": "type",
+  "type_interval": 0.005,
+  "bulk_countdown": 3,
+  "bulk_delay": 0.15,
+  "require_token": true
+}
