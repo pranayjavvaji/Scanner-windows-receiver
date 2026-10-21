@@ -4,13 +4,14 @@ wherever your cursor is (just like a hardware barcode scanner)."""
 import argparse, hmac, json, os, queue, secrets, socket, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 APP_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 DEFAULTS = {
     "port": 8765,
     "token": "",
-    "suffix": "enter",        # enter | tab | none  (key pressed after every scan)
+    "suffix": "enter",        # enter | tab | none  (key pressed AFTER every scan)
+    "prefix": "none",         # none | esc | esc2   (Esc pressed once/twice BEFORE every scan)
     "mode": "type",           # type | clipboard    (clipboard = paste with Ctrl+V)
     "type_interval": 0.005,   # seconds between keystrokes
     "bulk_countdown": 3,      # seconds to click your target window before bulk typing
@@ -85,11 +86,18 @@ class Typer:
             except Exception:
                 pass
 
-    def type_item(self, text, suffix, mode, interval):
+    def type_item(self, text, suffix, prefix, mode, interval):
         text = text.replace("\r", " ").replace("\n", " ")
         if self.dry:
-            print(f"   [dry-run] would type {text!r} + {suffix}")
+            print(f"   [dry-run] prefix={prefix} would type {text!r} + {suffix}")
             return
+        # keys pressed BEFORE the item (e.g. Esc, Esc to close a popup / clear a field)
+        n = {"esc": 1, "esc2": 2}.get(prefix, 0)
+        for _ in range(n):
+            self.pg.press("esc")
+            time.sleep(0.06)
+        if n:
+            time.sleep(0.05)
         if self.clip and (mode == "clipboard" or not text.isascii()):
             self._paste(text)
         else:
@@ -99,6 +107,7 @@ class Typer:
                     self.pg.write(p, interval=interval)
                 if i < len(parts) - 1:
                     self.pg.press("tab")
+        # key pressed AFTER the item
         if suffix in ("enter", "tab"):
             self.pg.press(suffix)
 
@@ -141,11 +150,14 @@ def make_handler(cfg, jobs):
             suffix = data.get("suffix", cfg["suffix"])
             if suffix not in ("enter", "tab", "none"):
                 suffix = cfg["suffix"]
+            prefix = data.get("prefix", cfg["prefix"])
+            if prefix not in ("none", "esc", "esc2"):
+                prefix = cfg["prefix"]
             if self.path == "/type":
                 text = str(data.get("text", ""))[:MAX_LEN]
                 if not text:
                     return self._send(400, {"ok": False, "error": "empty"})
-                jobs.put({"items": [text], "suffix": suffix, "countdown": 0, "delay": 0})
+                jobs.put({"items": [text], "suffix": suffix, "prefix": prefix, "countdown": 0, "delay": 0})
                 print(f"[scan] {text!r}")
                 return self._send(200, {"ok": True, "queued": 1})
             if self.path == "/bulk":
@@ -154,7 +166,7 @@ def make_handler(cfg, jobs):
                     return self._send(400, {"ok": False, "error": "empty"})
                 cd = int(data.get("countdown", cfg["bulk_countdown"]))
                 delay = float(data.get("delay", cfg["bulk_delay"]))
-                jobs.put({"items": items, "suffix": suffix, "countdown": max(0, min(cd, 30)),
+                jobs.put({"items": items, "suffix": suffix, "prefix": prefix, "countdown": max(0, min(cd, 30)),
                           "delay": max(0.0, min(delay, 5.0))})
                 print(f"[bulk] {len(items)} items queued")
                 return self._send(200, {"ok": True, "queued": len(items), "countdown": cd})
@@ -171,7 +183,7 @@ def worker(jobs, typer, cfg):
                 print(f"   typing starts in {s}... click your target field now")
                 time.sleep(1)
             for t in job["items"]:
-                typer.type_item(t, job["suffix"], cfg["mode"], cfg["type_interval"])
+                typer.type_item(t, job["suffix"], job["prefix"], cfg["mode"], cfg["type_interval"])
                 if job["delay"]:
                     time.sleep(job["delay"])
         except Exception as e:
@@ -198,6 +210,7 @@ def main():
     ap = argparse.ArgumentParser(description="BarScan receiver")
     ap.add_argument("--port", type=int)
     ap.add_argument("--suffix", choices=["enter", "tab", "none"])
+    ap.add_argument("--prefix", choices=["none", "esc", "esc2"])
     ap.add_argument("--mode", choices=["type", "clipboard"])
     ap.add_argument("--reset-token", action="store_true")
     ap.add_argument("--qr-image", action="store_true", help="open the pairing QR as an image")
@@ -209,7 +222,7 @@ def main():
         pass
 
     cfg = load_config()
-    for k in ("port", "suffix", "mode"):
+    for k in ("port", "suffix", "prefix", "mode"):
         if getattr(a, k) is not None:
             cfg[k] = getattr(a, k)
     if a.reset_token or not cfg["token"]:
@@ -222,8 +235,8 @@ def main():
     print(f"\n=== BarScan Receiver v{VERSION} ===")
     print(f"Address : {ips[0]}:{cfg['port']}" + (f"   (other: {', '.join(ips[1:])})" if len(ips) > 1 else ""))
     print(f"Token   : {cfg['token']}")
-    print(f"Mode    : {cfg['mode']}, after each scan press: {cfg['suffix']}\n")
-    print("In the app: Devices > Pair via QR, then scan this code:\n")
+    print(f"Mode    : {cfg['mode']}, before each scan press: {cfg['prefix']}, after: {cfg['suffix']}\n")
+    print("In the app: Setup > Pair via QR, then scan this code:\n")
     show_qr(payload, a.qr_image)
     print("\nListening... click into any text field and scan. Ctrl+C to quit.\n")
 

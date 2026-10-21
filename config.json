@@ -1,7 +1,8 @@
 {
-  "port": 8799,
-  "token": "48784fe5",
+  "port": 8765,
+  "token": "",
   "suffix": "enter",
+  "prefix": "none",
   "mode": "type",
   "type_interval": 0.005,
   "bulk_countdown": 3,
